@@ -1,182 +1,111 @@
-// api/gerar-peticao.js
-// LexPet — Função serverless Vercel
-// Recebe dados do formulário, gera ID único e envia ao Telegram
-
-// Contador em memória por instância (reinicia a cada cold start)
-// Para produção com volume alto, substituir por KV store (Vercel KV ou Upstash)
-let contadorDia = { data: '', seq: 0 };
-
-function gerarID() {
-  const agora = new Date();
-  // Ajusta para horário de Brasília (UTC-3)
-  const brasilia = new Date(agora.getTime() - 3 * 60 * 60 * 1000);
-  const dd   = String(brasilia.getUTCDate()).padStart(2, '0');
-  const mm   = String(brasilia.getUTCMonth() + 1).padStart(2, '0');
-  const aaaa = brasilia.getUTCFullYear();
-  const dataHoje = `${dd}${mm}${aaaa}`;
-
-  // Reinicia contador se mudou o dia
-  if (contadorDia.data !== dataHoje) {
-    contadorDia.data = dataHoje;
-    contadorDia.seq  = 0;
-  }
-  contadorDia.seq += 1;
-
-  const seq = String(contadorDia.seq).padStart(4, '0');
-  return `LEXPET-${dataHoje}-${seq}`;
-}
-
-function dataHoraBrasilia() {
-  const agora = new Date();
-  return agora.toLocaleString('pt-BR', {
-    timeZone: 'America/Sao_Paulo',
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit'
-  });
-}
-
-function truncar(texto, limite = 200) {
-  if (!texto || texto.trim() === '') return '(nao informado)';
-  const t = texto.trim();
-  return t.length > limite ? t.substring(0, limite) + '...' : t;
-}
-
-function campo(label, valor) {
-  const v = (valor && String(valor).trim()) ? String(valor).trim() : '(nao informado)';
-  return `${label}: ${v}`;
-}
-
-function montarMensagem(dados, id) {
-  const linhas = [
-    '=== NOVA SOLICITACAO LEXPET ===',
-    '',
-    campo('ID',              id),
-    campo('Data e hora',     dataHoraBrasilia()),
-    '',
-    '--- DADOS DA PECA ---',
-    campo('Tipo de peca',    dados.tipoPeca),
-    campo('Vara / Juizo',    dados.vara),
-    campo('Comarca',         dados.comarca),
-    campo('Numero processo', dados.processo || 'Acao nova'),
-    campo('Valor da causa',  dados.valor),
-    '',
-    '--- PARTES ---',
-    campo('Parte autora',    dados.parte1),
-    campo('Parte re',        dados.parte2),
-    '',
-    '--- ADVOGADO SUBSCRITOR ---',
-    campo('Nome',            dados.advogado),
-    campo('OAB',             dados.oab),
-    campo('E-mail',          dados.email),
-    campo('WhatsApp',        dados.whatsapp),
-    '',
-    '--- CONTEUDO (PREVIEW) ---',
-    'Fatos:',
-    truncar(dados.fatos, 200),
-    '',
-    'Pedidos:',
-    truncar(dados.pedidos, 200),
-    '',
-    '--- ANEXO ---',
-    campo('Documento anexado', dados.temAnexo ? 'SIM - ' + (dados.nomeAnexo || 'arquivo') : 'Nao'),
-    '',
-    '=== FIM DA SOLICITACAO ==='
-  ];
-
-  return linhas.join('\n');
-}
-
-async function enviarTelegram(mensagem, token, chatId) {
-  const url = `https://api.telegram.org/bot${token}/sendMessage`;
-  const body = JSON.stringify({
-    chat_id: chatId,
-    text: mensagem,
-    // Sem parse_mode — texto puro, sem risco de erro de formatacao
-  });
-
-  const resp = await fetch(url, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body,
-  });
-
-  if (!resp.ok) {
-    const erro = await resp.text();
-    throw new Error(`Telegram API ${resp.status}: ${erro}`);
-  }
-
-  return await resp.json();
-}
-
 export default async function handler(req, res) {
-  // Apenas POST
+  // CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'POST') {
     return res.status(405).json({ erro: 'Metodo nao permitido' });
   }
 
-  // CORS — permite apenas o domínio do LexPet
-  const origem = req.headers.origin || '';
-  const origensPermitidas = [
-    'https://lexpet.com.br',
-    'https://www.lexpet.com.br',
-    'http://localhost',        // testes locais
-    'http://127.0.0.1',
-    'null',                    // arquivo HTML aberto localmente (file://)
-  ];
+  // Variaveis de ambiente
+  const token = process.env.TELEGRAM_BOT_TOKEN || '';
+  const chatId = process.env.TELEGRAM_CHAT_ID || '';
 
-  // Em desenvolvimento (sem origin definida) também permite
-  if (origensPermitidas.includes(origem) || !origem) {
-    res.setHeader('Access-Control-Allow-Origin', origem || '*');
-  } else {
-    return res.status(403).json({ erro: 'Origem nao autorizada' });
-  }
-
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  // Preflight OPTIONS
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
-  // Lê variáveis de ambiente
-  const token  = process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  // Log de diagnostico (token mascarado)
+  const tokenLog = token.length > 8
+    ? token.slice(0, 4) + '...' + token.slice(-4)
+    : '(vazio ou muito curto)';
+  console.log('[LexPet] Token carregado:', tokenLog);
+  console.log('[LexPet] Chat ID carregado:', chatId || '(vazio)');
 
   if (!token || !chatId) {
-    console.error('TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID nao configurados');
+    console.error('[LexPet] ERRO: Variavel de ambiente ausente.');
     return res.status(500).json({
-      erro: 'Configuracao do servidor incompleta',
-      id:   null
+      erro: 'Configuracao incompleta',
+      detalhe: 'TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID nao definidos'
     });
   }
 
-  // Gera ID antes de qualquer coisa — mesmo se der erro, retorna o ID
-  const id = gerarID();
+  // Gerar ID sequencial
+  const agora = new Date();
+  const dd = String(agora.getDate()).padStart(2, '0');
+  const mm = String(agora.getMonth() + 1).padStart(2, '0');
+  const aaaa = agora.getFullYear();
+  const seq = Math.floor(Math.random() * 9000) + 1000;
+  const idPeticao = `LEXPET-${dd}${mm}${aaaa}-${seq}`;
+
+  // Montar mensagem em texto puro, sem markdown, sem emojis
+  const dados = req.body || {};
+  const linhas = [
+    `ID: ${idPeticao}`,
+    `Tipo: ${dados.tipo || '(nao informado)'}`,
+    `Autor: ${dados.autor || '(nao informado)'}`,
+    `Reu: ${dados.reu || '(nao informado)'}`,
+    `Comarca: ${dados.comarca || '(nao informado)'}`,
+    `Processo: ${dados.processo || '(nao informado)'}`,
+    `Advogado: ${dados.advogado || '(nao informado)'}`,
+    `OAB: ${dados.oab || '(nao informado)'}`,
+    `WhatsApp: ${dados.whatsapp || '(nao informado)'}`,
+    ``,
+    `Fatos:`,
+    `${dados.fatos || '(nao informado)'}`,
+    ``,
+    `Pedidos:`,
+    `${dados.pedidos || '(nao informado)'}`,
+  ];
+  const mensagem = linhas.join('\n');
+
+  console.log('[LexPet] Mensagem montada, ID:', idPeticao);
+  console.log('[LexPet] Enviando para chat_id:', chatId);
+
+  // Enviar ao Telegram
+  let telegramStatus = null;
+  let telegramBody = null;
 
   try {
-    // Extrai dados do corpo
-    const dados = req.body || {};
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    const resposta = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: mensagem
+        // sem parse_mode — texto puro conforme solicitado
+      })
+    });
 
-    // Monta e envia mensagem
-    const mensagem = montarMensagem(dados, id);
-    await enviarTelegram(mensagem, token, chatId);
+    telegramStatus = resposta.status;
+    telegramBody = await resposta.json();
+
+    console.log('[LexPet] Telegram status:', telegramStatus);
+    console.log('[LexPet] Telegram resposta:', JSON.stringify(telegramBody));
+
+    if (!resposta.ok) {
+      return res.status(500).json({
+        erro: 'Falha ao enviar para o Telegram',
+        telegram_status: telegramStatus,
+        telegram_erro: telegramBody
+      });
+    }
 
     return res.status(200).json({
       sucesso: true,
-      id,
-      mensagem: 'Solicitacao recebida com sucesso'
+      id: idPeticao,
+      mensagem: 'Solicitacao enviada com sucesso'
     });
 
-  } catch (erro) {
-    console.error('Erro ao enviar para Telegram:', erro.message);
-
-    // Retorna o ID mesmo em caso de erro para rastreio
+  } catch (e) {
+    console.error('[LexPet] Excecao ao chamar Telegram:', e.message);
     return res.status(500).json({
-      sucesso: false,
-      id,
-      erro: 'Nao foi possivel enviar a notificacao. Tente novamente ou entre em contato pelo WhatsApp.',
-      detalhe: process.env.NODE_ENV === 'development' ? erro.message : undefined
+      erro: 'Excecao na chamada ao Telegram',
+      detalhe: e.message,
+      telegram_status: telegramStatus,
+      telegram_body: telegramBody
     });
   }
 }
