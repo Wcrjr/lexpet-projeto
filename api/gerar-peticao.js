@@ -1,111 +1,81 @@
+// LexPet — Funcao serverless para Vercel
+// Recebe dados do formulario, gera ID unico e envia para o grupo do Telegram
 export default async function handler(req, res) {
-  // CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
+  // Apenas POST
   if (req.method !== 'POST') {
     return res.status(405).json({ erro: 'Metodo nao permitido' });
   }
-
-  // Variaveis de ambiente
-  const token = process.env.TELEGRAM_BOT_TOKEN || '';
-  const chatId = process.env.TELEGRAM_CHAT_ID || '';
-
-  // Log de diagnostico (token mascarado)
-  const tokenLog = token.length > 8
-    ? token.slice(0, 4) + '...' + token.slice(-4)
-    : '(vazio ou muito curto)';
-  console.log('[LexPet] Token carregado:', tokenLog);
-  console.log('[LexPet] Chat ID carregado:', chatId || '(vazio)');
-
-  if (!token || !chatId) {
-    console.error('[LexPet] ERRO: Variavel de ambiente ausente.');
-    return res.status(500).json({
-      erro: 'Configuracao incompleta',
-      detalhe: 'TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID nao definidos'
-    });
+  const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+  const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+  // Verifica token configurado
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+    return res.status(500).json({ erro: 'Configuracao do Telegram ausente no servidor' });
   }
-
-  // Gerar ID sequencial
-  const agora = new Date();
-  const dd = String(agora.getDate()).padStart(2, '0');
-  const mm = String(agora.getMonth() + 1).padStart(2, '0');
-  const aaaa = agora.getFullYear();
-  const seq = Math.floor(Math.random() * 9000) + 1000;
-  const idPeticao = `LEXPET-${dd}${mm}${aaaa}-${seq}`;
-
-  // Montar mensagem em texto puro, sem markdown, sem emojis
-  const dados = req.body || {};
-  const linhas = [
-    `ID: ${idPeticao}`,
-    `Tipo: ${dados.tipo || '(nao informado)'}`,
-    `Autor: ${dados.autor || '(nao informado)'}`,
-    `Reu: ${dados.reu || '(nao informado)'}`,
-    `Comarca: ${dados.comarca || '(nao informado)'}`,
-    `Processo: ${dados.processo || '(nao informado)'}`,
-    `Advogado: ${dados.advogado || '(nao informado)'}`,
-    `OAB: ${dados.oab || '(nao informado)'}`,
-    `WhatsApp: ${dados.whatsapp || '(nao informado)'}`,
-    ``,
-    `Fatos:`,
-    `${dados.fatos || '(nao informado)'}`,
-    ``,
-    `Pedidos:`,
-    `${dados.pedidos || '(nao informado)'}`,
-  ];
-  const mensagem = linhas.join('\n');
-
-  console.log('[LexPet] Mensagem montada, ID:', idPeticao);
-  console.log('[LexPet] Enviando para chat_id:', chatId);
-
-  // Enviar ao Telegram
-  let telegramStatus = null;
-  let telegramBody = null;
-
   try {
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
-    const resposta = await fetch(url, {
+    const dados = req.body;
+    // Gera ID unico para este lead
+    const data = new Date();
+    const dataStr = data.toISOString().slice(0, 10).replace(/-/g, '');
+    const seq = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
+    const idUnico = `LEXPET-${dataStr}-${seq}`;
+    // Monta a mensagem para o Telegram
+    const partes = [
+      `NOVO LEAD LEXPET`,
+      `ID: #${idUnico}`,
+      `----------------------------------------`
+    ];
+    const campos = {
+      tipoPeca: 'Tipo de peca',
+      vara: 'Vara / Juizo',
+      comarca: 'Comarca',
+      numProcesso: 'Numero do processo',
+      parte1: 'Parte 1',
+      parte2: 'Parte 2',
+      valorCausa: 'Valor da causa',
+      email: 'E-mail profissional',
+      advogado: 'Advogado subscritor',
+      oab: 'OAB'
+    };
+    for (const [chave, rotulo] of Object.entries(campos)) {
+      if (dados[chave] && dados[chave].trim()) {
+        partes.push(`${rotulo}: ${dados[chave].trim()}`);
+      }
+    }
+    if (dados.fatos && dados.fatos.trim()) {
+      let fatos = dados.fatos.trim();
+      if (fatos.length > 200) fatos = fatos.slice(0, 200) + '...';
+      partes.push(`Fatos: ${fatos}`);
+    }
+    if (dados.pedidos && dados.pedidos.trim()) {
+      let pedidos = dados.pedidos.trim();
+      if (pedidos.length > 200) pedidos = pedidos.slice(0, 200) + '...';
+      partes.push(`Pedidos: ${pedidos}`);
+    }
+    partes.push(`----------------------------------------`);
+    partes.push(`Data: ${data.toLocaleString('pt-BR')}`);
+    const mensagem = partes.join('\n');
+    // Envia para o Telegram
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const respostaTelegram = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        chat_id: chatId,
+        chat_id: parseInt(TELEGRAM_CHAT_ID),
         text: mensagem
-        // sem parse_mode — texto puro conforme solicitado
       })
     });
-
-    telegramStatus = resposta.status;
-    telegramBody = await resposta.json();
-
-    console.log('[LexPet] Telegram status:', telegramStatus);
-    console.log('[LexPet] Telegram resposta:', JSON.stringify(telegramBody));
-
-    if (!resposta.ok) {
-      return res.status(500).json({
-        erro: 'Falha ao enviar para o Telegram',
-        telegram_status: telegramStatus,
-        telegram_erro: telegramBody
-      });
+    if (!respostaTelegram.ok) {
+      const erroTexto = await respostaTelegram.text();
+      console.error('Erro Telegram:', erroTexto);
+      return res.status(500).json({ erro: 'Erro ao enviar para Telegram', id: idUnico });
     }
-
     return res.status(200).json({
       sucesso: true,
-      id: idPeticao,
-      mensagem: 'Solicitacao enviada com sucesso'
+      id: idUnico,
+      mensagem: `Recebemos sua solicitacao! Protocolo #${idUnico}. Em breve sua peticao sera analisada.`
     });
-
-  } catch (e) {
-    console.error('[LexPet] Excecao ao chamar Telegram:', e.message);
-    return res.status(500).json({
-      erro: 'Excecao na chamada ao Telegram',
-      detalhe: e.message,
-      telegram_status: telegramStatus,
-      telegram_body: telegramBody
-    });
+  } catch (erro) {
+    console.error('Erro geral:', erro);
+    return res.status(500).json({ erro: 'Erro interno do servidor' });
   }
 }
