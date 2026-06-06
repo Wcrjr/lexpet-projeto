@@ -43,13 +43,16 @@ export default async function handler(req, res) {
     }
     if (dados.fatos && dados.fatos.trim()) {
       let fatos = dados.fatos.trim();
-      if (fatos.length > 200) fatos = fatos.slice(0, 200) + '...';
+      if (fatos.length > 2000) fatos = fatos.slice(0, 2000) + '...';
       partes.push(`Fatos: ${fatos}`);
     }
     if (dados.pedidos && dados.pedidos.trim()) {
       let pedidos = dados.pedidos.trim();
-      if (pedidos.length > 200) pedidos = pedidos.slice(0, 200) + '...';
+      if (pedidos.length > 2000) pedidos = pedidos.slice(0, 2000) + '...';
       partes.push(`Pedidos: ${pedidos}`);
+    }
+    if (dados.nomeAnexo && dados.nomeAnexo.trim()) {
+      partes.push(`Anexo: ${dados.nomeAnexo.trim()}`);
     }
     partes.push(`----------------------------------------`);
     partes.push(`Data: ${data.toLocaleString('pt-BR')}`);
