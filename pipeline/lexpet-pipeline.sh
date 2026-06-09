@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================
-# LEXPET PIPELINE — v2.0 (Parte 21)
+# LEXPET PIPELINE — v2.1 (Parte 21)
 # Fluxo: Jurisprudência → Themis JUR → Themis SUP → .docx → Telegram
 # Escritório Cassiano Ribeiro | OAB/SP 182.716
 # =============================================================
@@ -49,7 +49,6 @@ mkdir -p "$PECAS_DIR" "$LEXPET_DIR/logs" "$LEXPET_DIR/tmp"
 
 log "=== PIPELINE INICIADO: $LEAD_ID ==="
 
-LEAD_CONTENT=$(cat "$LEAD_FILE")
 TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
 TMP_DIR="$LEXPET_DIR/tmp/${LEAD_ID}_${TIMESTAMP}"
 mkdir -p "$TMP_DIR"
@@ -63,13 +62,17 @@ telegram_text "⚖️ <b>LexPet Pipeline</b>
 Lead: <code>${LEAD_ID}</code>
 Status: Buscando jurisprudência nos tribunais..."
 
-# Extrair tipo de peça e termo de busca do arquivo de lead
-TIPO_PECA=$(grep -i "tipo.*pe\|peca:\|peça:" "$LEAD_FILE" 2>/dev/null | head -1 | sed 's/.*:\s*//' | tr -d '\r' || echo "")
-FATOS_RESUMO=$(grep -A2 -i "fatos\|causa\|pedido\|objeto\|assunto" "$LEAD_FILE" 2>/dev/null | head -4 | tr '\n' ' ' | cut -c1-120 || echo "")
+# Extrair tipo de peça — apenas 2 primeiras palavras para não interferir na busca
+TIPO_PECA=$(grep -i "TIPO DE PECA:" "$LEAD_FILE" 2>/dev/null | head -1 | sed 's/.*:\s*//' | tr -d '\r' | awk '{print $1, $2}' || echo "")
 
-# Fallbacks se não encontrar
-[ -z "$TIPO_PECA" ]    && TIPO_PECA="Petição Inicial"
-[ -z "$FATOS_RESUMO" ] && FATOS_RESUMO=$(head -3 "$LEAD_FILE" | tr '\n' ' ' | cut -c1-100)
+# Extrair keywords jurídicas limpas dos fatos e pedidos
+FATOS_RESUMO=$(grep -A20 "FATOS:\|PEDIDOS:" "$LEAD_FILE" 2>/dev/null | \
+  grep -oi "seguro\|carro reserva\|negativa\|indeniz\|dano moral\|dano material\|plano de saude\|locacao\|clausula\|consumidor\|acidente\|trabalhist\|demissao\|rescisao\|despejo" | \
+  sort -u | tr '\n' ' ' | cut -c1-50 || echo "")
+
+# Fallbacks
+[ -z "$TIPO_PECA" ]    && TIPO_PECA="Peticao Inicial"
+[ -z "$FATOS_RESUMO" ] && FATOS_RESUMO="indenizacao consumidor dano"
 
 log "[0/4] Tipo de peça: ${TIPO_PECA}"
 log "[0/4] Termo de busca: ${FATOS_RESUMO}"
@@ -105,7 +108,6 @@ telegram_text "📝 <b>LexPet Pipeline</b>
 Lead: <code>${LEAD_ID}</code>
 Status: Themis JUR redigindo a peça..."
 
-# Prompt enriquecido: dados do lead + julgados pesquisados
 PROMPT_JUR="=== DADOS DO LEAD ===
 $(cat "$LEAD_FILE")
 
@@ -179,7 +181,6 @@ $(cat "$TMP_DIR/peca_bruta.txt")" \
 echo "$AUDITORIA" > "$TMP_DIR/auditoria.txt"
 log "[2/4] Auditoria concluída"
 
-# Extrair status da auditoria
 STATUS_AUDITORIA="APROVADA"
 if echo "$AUDITORIA" | grep -q "BLOQUEADA"; then
   STATUS_AUDITORIA="BLOQUEADA"
@@ -187,7 +188,6 @@ elif echo "$AUDITORIA" | grep -q "RESSALVAS"; then
   STATUS_AUDITORIA="APROVADA COM RESSALVAS"
 fi
 
-# Extrair peça corrigida (após o relatório)
 PECA_FINAL="$PECA_BRUTA"
 if echo "$AUDITORIA" | grep -q "EXCELENTISSIMO\|EXCELENTÍSSIMO"; then
   PECA_FINAL=$(echo "$AUDITORIA" | awk '/EXCELENTISSIMO|EXCELENTÍSSIMO/{found=1} found{print}')
