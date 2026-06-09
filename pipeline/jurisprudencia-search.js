@@ -83,11 +83,19 @@ function detectarTribunais(tipoPeca, tribunaisArg) {
 }
 
 // Enriquece o termo de busca com complementos relevantes
+// Regras: não duplica palavras já presentes, limita a 60 chars no total
 function enriquecerTermo(termo) {
   const termoLower = termo.toLowerCase();
+  const palavrasJaPresentes = new Set(termoLower.split(/\s+/));
+
   for (const [chave, complemento] of Object.entries(TERMOS_COMPLEMENTARES)) {
     if (termoLower.includes(chave)) {
-      return `${termo} ${complemento}`;
+      // Adiciona apenas palavras novas do complemento
+      const novas = complemento.split(/\s+/).filter(p => !palavrasJaPresentes.has(p));
+      if (novas.length === 0) return termo;
+      const enriquecido = `${termo} ${novas.slice(0, 3).join(' ')}`;
+      // Limita a 80 caracteres para não estourar a query
+      return enriquecido.length <= 80 ? enriquecido : termo;
     }
   }
   return termo;
