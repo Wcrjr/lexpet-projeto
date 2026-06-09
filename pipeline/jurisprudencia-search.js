@@ -82,23 +82,11 @@ function detectarTribunais(tipoPeca, tribunaisArg) {
   return TRIBUNAIS_PADRAO['default'];
 }
 
-// Enriquece o termo de busca com complementos relevantes
-// Regras: não duplica palavras já presentes, limita a 60 chars no total
+// Enriquecimento desativado — o pipeline já entrega keywords limpas
+// Mantém a função para compatibilidade mas retorna o termo sem alteração
 function enriquecerTermo(termo) {
-  const termoLower = termo.toLowerCase();
-  const palavrasJaPresentes = new Set(termoLower.split(/\s+/));
-
-  for (const [chave, complemento] of Object.entries(TERMOS_COMPLEMENTARES)) {
-    if (termoLower.includes(chave)) {
-      // Adiciona apenas palavras novas do complemento
-      const novas = complemento.split(/\s+/).filter(p => !palavrasJaPresentes.has(p));
-      if (novas.length === 0) return termo;
-      const enriquecido = `${termo} ${novas.slice(0, 3).join(' ')}`;
-      // Limita a 80 caracteres para não estourar a query
-      return enriquecido.length <= 80 ? enriquecido : termo;
-    }
-  }
-  return termo;
+  // Limita a 60 caracteres para garantir query eficiente na API
+  return termo.length <= 60 ? termo : termo.slice(0, 60).trim();
 }
 
 // Faz requisição à API com retry em caso de rate limit
