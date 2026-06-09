@@ -44,6 +44,49 @@ telegram_doc() {
     -F caption="$2" > /dev/null
 }
 
+# Detecta termo de busca jurídico a partir das palavras-chave do lead
+# Lógica: termos curtos e precisos que a API do Jurisprudencias.ai entende
+detectar_termo_busca() {
+  local lead_file="$1"
+  local conteudo
+  conteudo=$(cat "$lead_file" | tr '[:upper:]' '[:lower:]')
+
+  # Seguro — carro reserva
+  if echo "$conteudo" | grep -q "carro reserva\|carro.reserva"; then
+    echo "carro reserva seguro"; return
+  fi
+  # Seguro — negativa genérica
+  if echo "$conteudo" | grep -q "seguro\|segurador\|seguradora\|apolice\|apólice"; then
+    echo "seguro negativa indenizacao"; return
+  fi
+  # Plano de saúde
+  if echo "$conteudo" | grep -q "plano.*saude\|plano de saude\|plano saude\|convenio medico"; then
+    echo "plano saude negativa cobertura"; return
+  fi
+  # Dano moral consumidor
+  if echo "$conteudo" | grep -q "dano moral\|dano.moral"; then
+    echo "dano moral consumidor indenizacao"; return
+  fi
+  # Acidente de trânsito
+  if echo "$conteudo" | grep -q "acidente.*transito\|acidente de transito\|colisao\|batida"; then
+    echo "acidente transito indenizacao"; return
+  fi
+  # Trabalhista
+  if echo "$conteudo" | grep -q "demissao\|rescisao\|justa causa\|aviso previo\|fgts\|trabalhist"; then
+    echo "rescisao justa causa indenizacao"; return
+  fi
+  # Locação / despejo
+  if echo "$conteudo" | grep -q "locacao\|locatario\|despejo\|aluguel"; then
+    echo "locacao despejo rescisao contrato"; return
+  fi
+  # Banco / financeiro
+  if echo "$conteudo" | grep -q "banco\|financeira\|credito\|emprestimo\|cartao"; then
+    echo "banco dano moral consumidor"; return
+  fi
+  # Fallback genérico
+  echo "indenizacao consumidor dano moral"
+}
+
 # --- INÍCIO ---
 mkdir -p "$PECAS_DIR" "$LEXPET_DIR/logs" "$LEXPET_DIR/tmp"
 
@@ -62,27 +105,16 @@ telegram_text "⚖️ <b>LexPet Pipeline</b>
 Lead: <code>${LEAD_ID}</code>
 Status: Buscando jurisprudência nos tribunais..."
 
-# Extrair tipo de peça — apenas 2 primeiras palavras para não interferir na busca
-TIPO_PECA=$(grep -i "TIPO DE PECA:" "$LEAD_FILE" 2>/dev/null | head -1 | sed 's/.*:\s*//' | tr -d '\r' | awk '{print $1, $2}' || echo "")
-
-# Extrair keywords jurídicas limpas dos fatos e pedidos
-FATOS_RESUMO=$(grep -A20 "FATOS:\|PEDIDOS:" "$LEAD_FILE" 2>/dev/null | \
-  grep -oi "seguro\|carro reserva\|negativa\|indeniz\|dano moral\|dano material\|plano de saude\|locacao\|clausula\|consumidor\|acidente\|trabalhist\|demissao\|rescisao\|despejo" | \
-  sort -u | tr '\n' ' ' | cut -c1-50 || echo "")
-
-# Fallbacks
-[ -z "$TIPO_PECA" ]    && TIPO_PECA="Peticao Inicial"
-[ -z "$FATOS_RESUMO" ] && FATOS_RESUMO="indenizacao consumidor dano"
-
-log "[0/4] Tipo de peça: ${TIPO_PECA}"
-log "[0/4] Termo de busca: ${FATOS_RESUMO}"
+# Detectar termo de busca automaticamente pelo conteúdo do lead
+TERMO_BUSCA=$(detectar_termo_busca "$LEAD_FILE")
+log "[0/4] Termo de busca detectado: ${TERMO_BUSCA}"
 
 JUR_FILE="$TMP_DIR/jurisprudencia.txt"
 
 node "$SCRIPTS_DIR/jurisprudencia-search.js" \
-  "${TIPO_PECA}" \
-  "${FATOS_RESUMO}" \
-  --texto > "$JUR_FILE" 2>>"$LOG_FILE" || true
+  "Peticao Inicial" \
+  "${TERMO_BUSCA}" \
+  tjsp --texto > "$JUR_FILE" 2>>"$LOG_FILE" || true
 
 JUR_TOTAL=$(grep -c "^JULGADO" "$JUR_FILE" 2>/dev/null || echo "0")
 
@@ -90,7 +122,7 @@ if [ "$JUR_TOTAL" -gt 0 ]; then
   log "[0/4] Jurisprudência: ${JUR_TOTAL} julgado(s) encontrado(s)"
   telegram_text "✅ <b>LexPet Pipeline</b>
 Lead: <code>${LEAD_ID}</code>
-Jurisprudência: ${JUR_TOTAL} julgado(s) real(is) encontrado(s)"
+Jurisprudência: ${JUR_TOTAL} julgado(s) real(is) — termo: ${TERMO_BUSCA}"
 else
   log "[0/4] Nenhum julgado automático — Themis JUR usará [JURISPRUDÊNCIA PENDENTE]"
   telegram_text "⚠️ <b>LexPet Pipeline</b>
