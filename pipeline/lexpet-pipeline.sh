@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================
-# LEXPET PIPELINE — v1.0
-# Fluxo: Themis JUR → Themis SUP → .docx → Drive → Telegram
+# LEXPET PIPELINE — v2.0 (Parte 21)
+# Fluxo: Jurisprudência → Themis JUR → Themis SUP → .docx → Telegram
 # Escritório Cassiano Ribeiro | OAB/SP 182.716
 # =============================================================
 
@@ -55,17 +55,73 @@ TMP_DIR="$LEXPET_DIR/tmp/${LEAD_ID}_${TIMESTAMP}"
 mkdir -p "$TMP_DIR"
 
 # =============================================================
-# ETAPA 1 — THEMIS JUR REDIGE A PEÇA
+# ETAPA 0 — BUSCA DE JURISPRUDÊNCIA EM TEMPO REAL (Parte 21)
 # =============================================================
-log "[1/4] Themis JUR redigindo peça..."
+log "[0/4] Buscando jurisprudência em tempo real..."
 
 telegram_text "⚖️ <b>LexPet Pipeline</b>
 Lead: <code>${LEAD_ID}</code>
+Status: Buscando jurisprudência nos tribunais..."
+
+# Extrair tipo de peça e termo de busca do arquivo de lead
+TIPO_PECA=$(grep -i "tipo.*pe\|peca:\|peça:" "$LEAD_FILE" 2>/dev/null | head -1 | sed 's/.*:\s*//' | tr -d '\r' || echo "")
+FATOS_RESUMO=$(grep -A2 -i "fatos\|causa\|pedido\|objeto\|assunto" "$LEAD_FILE" 2>/dev/null | head -4 | tr '\n' ' ' | cut -c1-120 || echo "")
+
+# Fallbacks se não encontrar
+[ -z "$TIPO_PECA" ]    && TIPO_PECA="Petição Inicial"
+[ -z "$FATOS_RESUMO" ] && FATOS_RESUMO=$(head -3 "$LEAD_FILE" | tr '\n' ' ' | cut -c1-100)
+
+log "[0/4] Tipo de peça: ${TIPO_PECA}"
+log "[0/4] Termo de busca: ${FATOS_RESUMO}"
+
+JUR_FILE="$TMP_DIR/jurisprudencia.txt"
+
+node "$SCRIPTS_DIR/jurisprudencia-search.js" \
+  "${TIPO_PECA}" \
+  "${FATOS_RESUMO}" \
+  --texto > "$JUR_FILE" 2>>"$LOG_FILE" || true
+
+JUR_TOTAL=$(grep -c "^JULGADO" "$JUR_FILE" 2>/dev/null || echo "0")
+
+if [ "$JUR_TOTAL" -gt 0 ]; then
+  log "[0/4] Jurisprudência: ${JUR_TOTAL} julgado(s) encontrado(s)"
+  telegram_text "✅ <b>LexPet Pipeline</b>
+Lead: <code>${LEAD_ID}</code>
+Jurisprudência: ${JUR_TOTAL} julgado(s) real(is) encontrado(s)"
+else
+  log "[0/4] Nenhum julgado automático — Themis JUR usará [JURISPRUDÊNCIA PENDENTE]"
+  telegram_text "⚠️ <b>LexPet Pipeline</b>
+Lead: <code>${LEAD_ID}</code>
+Jurisprudência: nenhum julgado automático — Themis sinalizará pendência"
+  echo "Nenhum julgado encontrado. Use [JURISPRUDÊNCIA PENDENTE — verificar TJSP/STJ]." > "$JUR_FILE"
+fi
+
+# =============================================================
+# ETAPA 1 — THEMIS JUR REDIGE A PEÇA (com julgados no contexto)
+# =============================================================
+log "[1/4] Themis JUR redigindo peça..."
+
+telegram_text "📝 <b>LexPet Pipeline</b>
+Lead: <code>${LEAD_ID}</code>
 Status: Themis JUR redigindo a peça..."
+
+# Prompt enriquecido: dados do lead + julgados pesquisados
+PROMPT_JUR="=== DADOS DO LEAD ===
+$(cat "$LEAD_FILE")
+
+=== JURISPRUDÊNCIA PESQUISADA AUTOMATICAMENTE ===
+$(cat "$JUR_FILE")
+
+=== INSTRUÇÃO ===
+Redija a peça jurídica completa com base nos dados acima.
+Use obrigatoriamente os julgados fornecidos para fundamentar a argumentação.
+Se um julgado tiver número e tribunal, cite-o no formato: (TJSP, Processo nº XXXXXXX, j. DD/MM/AAAA).
+Se não houver julgados, use [JURISPRUDÊNCIA PENDENTE — verificar TJSP/STJ].
+Siga o fluxo obrigatório do AGENTS.md."
 
 PECA_BRUTA=$(docker exec "$CONTAINER" openclaw agent \
   --agent themis-jur \
-  --message "$(cat "$LEAD_FILE")" \
+  --message "${PROMPT_JUR}" \
   --local 2>/dev/null | \
   grep -v '^\[' | \
   grep -v '^gateway' | \
@@ -132,7 +188,6 @@ elif echo "$AUDITORIA" | grep -q "RESSALVAS"; then
 fi
 
 # Extrair peça corrigida (após o relatório)
-# O SUP deve entregar: RELATORIO + "---PECA CORRIGIDA---" + peça
 PECA_FINAL="$PECA_BRUTA"
 if echo "$AUDITORIA" | grep -q "EXCELENTISSIMO\|EXCELENTÍSSIMO"; then
   PECA_FINAL=$(echo "$AUDITORIA" | awk '/EXCELENTISSIMO|EXCELENTÍSSIMO/{found=1} found{print}')
@@ -175,6 +230,7 @@ telegram_text "✅ <b>LexPet — Peça Pronta para Revisão</b>
 
 Lead: <code>${LEAD_ID}</code>
 Status SUP: <b>${STATUS_AUDITORIA}</b>
+Jurisprudência: <b>${JUR_TOTAL} julgado(s) real(is)</b>
 Arquivo: <code>${NOME_ARQUIVO}</code>
 
 <b>Relatório Themis SUP:</b>
@@ -182,13 +238,14 @@ Arquivo: <code>${NOME_ARQUIVO}</code>
 
 Revise e assine antes de entregar ao advogado cliente."
 
-telegram_doc "$CAMINHO_DOCX" "Petição ${LEAD_ID} — ${STATUS_AUDITORIA} pelo Themis SUP"
+telegram_doc "$CAMINHO_DOCX" "Petição ${LEAD_ID} — ${STATUS_AUDITORIA} | ${JUR_TOTAL} julgado(s) real(is)"
 
 log "[4/4] .docx enviado para Telegram"
-log "=== PIPELINE CONCLUÍDO: $LEAD_ID — Status: ${STATUS_AUDITORIA} ==="
+log "=== PIPELINE CONCLUÍDO: $LEAD_ID — Status: ${STATUS_AUDITORIA} | Julgados: ${JUR_TOTAL} ==="
 
 echo ""
 echo "PIPELINE CONCLUÍDO"
 echo "Lead: $LEAD_ID"
 echo "Status SUP: $STATUS_AUDITORIA"
+echo "Julgados reais: $JUR_TOTAL"
 echo "Arquivo: $CAMINHO_DOCX"
