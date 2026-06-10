@@ -1,5 +1,4 @@
-
-// Registra usuario e peca no Supabase
+cat > /root/.openclaw/workspace/api/gerar-peticao.js << 'EOF'
 async function registrarNoSupabase(dados, idUnico) {
   const SUPABASE_URL = process.env.SUPABASE_URL;
   const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -30,10 +29,6 @@ async function registrarNoSupabase(dados, idUnico) {
   });
 }
 
-// LexPet — Funcao serverless para Vercel
-// Recebe dados do formulario, gera ID unico e envia para o grupo do Telegram
-// Opcao C hibrida: posta no grupo + ping no privado para Themis detectar
-
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ erro: 'Metodo nao permitido' });
@@ -51,13 +46,11 @@ export default async function handler(req, res) {
   try {
     const dados = req.body;
 
-    // Gera ID unico para este lead
     const data = new Date();
     const dataStr = data.toISOString().slice(0, 10).replace(/-/g, '');
     const seq = Math.floor(Math.random() * 9999).toString().padStart(4, '0');
     const idUnico = `LEXPET-${dataStr}-${seq}`;
 
-    // Monta a mensagem completa para o grupo
     const partes = [
       `NOVO LEAD LEXPET`,
       `ID: #${idUnico}`,
@@ -104,15 +97,11 @@ export default async function handler(req, res) {
 
     const mensagemGrupo = partes.join('\n');
 
-    // 1. Envia mensagem completa para o GRUPO via @LexPetLeads_bot
     const urlGrupo = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
     const respostaGrupo = await fetch(urlGrupo, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        chat_id: parseInt(TELEGRAM_CHAT_ID),
-        text: mensagemGrupo
-      })
+      body: JSON.stringify({ chat_id: parseInt(TELEGRAM_CHAT_ID), text: mensagemGrupo })
     });
 
     if (!respostaGrupo.ok) {
@@ -121,25 +110,44 @@ export default async function handler(req, res) {
       return res.status(500).json({ erro: 'Erro ao enviar para grupo Telegram', id: idUnico });
     }
 
-    // 2. Envia ping curto no PRIVADO via @Advocaciacr_bot para Themis detectar
     if (TELEGRAM_NOTIFY_TOKEN && TELEGRAM_NOTIFY_ID) {
       const mensagemPing = `NOVO LEAD LEXPET — ID: #${idUnico} — Tipo: ${dados.tipoPeca || 'nao informado'} — dados completos no grupo LexPet`;
       const urlPrivado = `https://api.telegram.org/bot${TELEGRAM_NOTIFY_TOKEN}/sendMessage`;
       await fetch(urlPrivado, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: parseInt(TELEGRAM_NOTIFY_ID),
-          text: mensagemPing
-        })
+        body: JSON.stringify({ chat_id: parseInt(TELEGRAM_NOTIFY_ID), text: mensagemPing })
       });
     }
 
     await registrarNoSupabase(dados, idUnico);
+
+    const SERVER_URL = process.env.LEXPET_SERVER_URL || 'http://192.168.15.11:3001';
+    let linkDownload = null;
+    let expiraEm = null;
+
+    try {
+      const respostaServer = await fetch(`${SERVER_URL}/gerar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...dados, leadId: idUnico }),
+        signal: AbortSignal.timeout(115000)
+      });
+      if (respostaServer.ok) {
+        const resultadoServer = await respostaServer.json();
+        linkDownload = resultadoServer.linkDownload || null;
+        expiraEm = resultadoServer.expiraEm || null;
+      }
+    } catch (errServer) {
+      console.error('Servidor Express indisponivel:', errServer.message);
+    }
+
     return res.status(200).json({
       sucesso: true,
       id: idUnico,
-      mensagem: `Recebemos sua solicitacao! Protocolo #${idUnico}. Em breve sua peticao sera analisada.`
+      linkDownload,
+      expiraEm,
+      mensagem: `Recebemos sua solicitacao! Protocolo #${idUnico}.`
     });
 
   } catch (erro) {
@@ -147,3 +155,4 @@ export default async function handler(req, res) {
     return res.status(500).json({ erro: 'Erro interno do servidor' });
   }
 }
+EOF
