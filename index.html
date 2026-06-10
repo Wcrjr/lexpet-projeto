@@ -1025,7 +1025,7 @@
       const resultado = await resp.json();
 
       if (resp.ok && resultado.sucesso) {
-        mostrarSucesso(dados.whatsapp || dados.email, resultado.id);
+        mostrarSucesso(dados.whatsapp || dados.email, resultado.id, resultado.linkDownload, resultado.expiraEm);
         limparFormulario();
         try { localStorage.removeItem('lexpet_rascunho'); } catch(e) {}
       } else {
@@ -1050,7 +1050,7 @@
     }
   }
 
-  function mostrarSucesso(contato, id) {
+  function mostrarSucesso(contato, id, linkDownload, expiraEm) {
     const inner = document.querySelector('.form-inner');
     inner.innerHTML = `
       <div style="text-align:center;padding:40px 0">
