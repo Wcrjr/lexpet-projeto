@@ -1016,16 +1016,19 @@
     btn.style.opacity = '0.8';
 
     try {
-      const resp = await fetch('/api/gerar-peticao', {
+      const resp = await fetch('https://tree-jogger-component.ngrok-free.dev/gerar', {
         method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-lexpet-key': 'lexpet-cassiano-2026'
+        },
         body:    JSON.stringify(dados),
       });
 
       const resultado = await resp.json();
 
       if (resp.ok && resultado.sucesso) {
-        mostrarSucesso(dados.whatsapp || dados.email, resultado.id, resultado.linkDownload, resultado.expiraEm);
+        mostrarSucesso(dados.whatsapp || dados.email, resultado.id, resultado.linkDownload, resultado.expiraEm, resultado.textoPeca);
         limparFormulario();
         try { localStorage.removeItem('lexpet_rascunho'); } catch(e) {}
       } else {
@@ -1050,24 +1053,34 @@
     }
   }
 
-  function mostrarSucesso(contato, id, linkDownload, expiraEm) {
+  function mostrarSucesso(contato, id, linkDownload, expiraEm, textoPeca) {
     const inner = document.querySelector('.form-inner');
+    const expira = expiraEm ? new Date(expiraEm).toLocaleString('pt-BR') : null;
+    const previewHtml = textoPeca ? `
+      <div style="margin:24px 0;text-align:left;background:var(--fundo);border:0.5px solid var(--borda);border-radius:var(--radius-lg);overflow:hidden">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--fundo-sec);border-bottom:0.5px solid var(--borda)">
+          <span style="font-size:12px;color:var(--texto-sec)">📄 ${id}.docx</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="background:var(--verde-claro);color:var(--verde);font-size:10px;padding:3px 8px;border-radius:8px;border:0.5px solid var(--verde-borda)">✓ Revisão automática: OK</span>
+            <a href="${linkDownload}" target="_blank" download style="display:inline-flex;align-items:center;gap:5px;background:var(--verde);color:#fff;border:none;padding:7px 16px;border-radius:7px;font-size:12px;cursor:pointer;font-family:'DM Sans',sans-serif;text-decoration:none">⬇ Baixar .doc</a>
+          </div>
+        </div>
+        <div style="padding:24px;font-family:'Lora',serif;font-size:12px;line-height:1.9;color:var(--texto);white-space:pre-wrap;max-height:400px;overflow-y:auto">${textoPeca.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>
+      </div>
+      ${expira ? `<div style="font-size:11px;color:var(--texto-sec);margin-bottom:16px">Link válido até ${expira}</div>` : ''}` : `
+      <div style="background:var(--verde-claro);border:0.5px solid var(--verde-borda);border-radius:10px;padding:16px 20px;font-size:13px;color:var(--verde-escuro);max-width:380px;margin:0 auto 28px;line-height:1.7">
+        Tempo médio de entrega: <strong>até 30 minutos</strong><br>
+        A peça será revisada pelo Dr. Waterlôo antes do envio<br>
+        Guarde o ID acima para acompanhamento
+      </div>`;
     inner.innerHTML = `
       <div style="text-align:center;padding:40px 0">
         <div style="font-size:52px;margin-bottom:16px">✅</div>
         <h2 style="font-family:'Lora',serif;font-size:26px;font-weight:500;margin-bottom:12px">
-          Solicitação recebida!
+          ${textoPeca ? 'Petição gerada!' : 'Solicitação recebida!'}
         </h2>
         ${id ? `<div style="display:inline-block;background:var(--verde-claro);border:0.5px solid var(--verde-borda);border-radius:8px;padding:6px 16px;font-size:13px;font-weight:500;color:var(--verde-escuro);margin-bottom:18px;font-family:monospace;letter-spacing:0.5px">${id}</div>` : ''}
-        <p style="font-size:16px;color:var(--texto-sec);max-width:420px;margin:0 auto 24px;line-height:1.6">
-          A Themis JUR recebeu seus dados e está redigindo sua petição com jurisprudência atualizada.
-          ${contato ? `<br>Em breve você será contatado via <strong>${contato}</strong>.` : ''}
-        </p>
-        <div style="background:var(--verde-claro);border:0.5px solid var(--verde-borda);border-radius:10px;padding:16px 20px;font-size:13px;color:var(--verde-escuro);max-width:380px;margin:0 auto 28px;line-height:1.7">
-          Tempo médio de entrega: <strong>até 30 minutos</strong><br>
-          A peça será revisada pelo Dr. Waterlôo antes do envio<br>
-          Guarde o ID acima para acompanhamento
-        </div>
+        ${previewHtml}
         <button onclick="location.reload()"
           style="background:transparent;border:0.5px solid var(--verde);color:var(--verde);
           padding:10px 24px;border-radius:8px;font-size:14px;cursor:pointer;font-family:'DM Sans',sans-serif;">
