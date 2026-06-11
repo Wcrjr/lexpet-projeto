@@ -148,10 +148,11 @@ $(cat "$JUR_FILE")
 
 === INSTRUÇÃO ===
 Redija a peça jurídica completa com base nos dados acima.
+IMPORTANTE: Dados como número do processo, CNPJ e endereço completo podem estar ausentes — substitua por [A PREENCHER] e prossiga com a redação. NÃO pare para perguntar.
 Use obrigatoriamente os julgados fornecidos para fundamentar a argumentação.
 Se um julgado tiver número e tribunal, cite-o no formato: (TJSP, Processo nº XXXXXXX, j. DD/MM/AAAA).
 Se não houver julgados, use [JURISPRUDÊNCIA PENDENTE — verificar TJSP/STJ].
-Siga o fluxo obrigatório do AGENTS.md."
+Entregue APENAS o texto da peça forense, sem relatórios, sem cabeçalhos de sistema, sem observações antes da peça."
 
 PECA_BRUTA=$(docker exec "$CONTAINER" openclaw agent \
   --agent themis-jur \
