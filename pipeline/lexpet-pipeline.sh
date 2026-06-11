@@ -169,7 +169,12 @@ PECA_BRUTA=$(docker exec "$CONTAINER" openclaw agent \
   grep -v '├' | \
   grep -v '│' | \
   sed '/^$/d' | \
-  tail -n +5)
+  tail -n +5 | \
+  sed '/^Vou redigir/d' | \
+  sed '/^Vou elaborar/d' | \
+  sed '/^Vou preparar/d' | \
+  sed '/^Com base nos/d' | \
+  sed '/^Baseado nos/d')
 
 if [ -z "$PECA_BRUTA" ]; then
   log "ERRO: Themis JUR nao retornou conteudo"
