@@ -77,13 +77,13 @@ export default async function handler(req, res) {
 
     if (dados.fatos && dados.fatos.trim()) {
       let fatos = dados.fatos.trim();
-      if (fatos.length > 2000) fatos = fatos.slice(0, 2000) + '...';
+      // sem limite de caracteres nos fatos
       partes.push(`Fatos: ${fatos}`);
     }
 
     if (dados.pedidos && dados.pedidos.trim()) {
       let pedidos = dados.pedidos.trim();
-      if (pedidos.length > 2000) pedidos = pedidos.slice(0, 2000) + '...';
+      // sem limite de caracteres nos pedidos
       partes.push(`Pedidos: ${pedidos}`);
     }
 
