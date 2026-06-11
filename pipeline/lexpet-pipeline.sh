@@ -116,7 +116,7 @@ node "$SCRIPTS_DIR/jurisprudencia-search.js" \
   "${TERMO_BUSCA}" \
   tjsp --texto > "$JUR_FILE" 2>>"$LOG_FILE" || true
 
-JUR_TOTAL=$(grep -c "^JULGADO" "$JUR_FILE" 2>/dev/null || echo "0")
+JUR_TOTAL=$(grep -c "^JULGADO" "$JUR_FILE" 2>/dev/null | tail -1 | tr -d "[:space:]" || echo "0")
 
 if [ "$JUR_TOTAL" -gt 0 ]; then
   log "[0/4] Jurisprudência: ${JUR_TOTAL} julgado(s) encontrado(s)"
@@ -221,8 +221,10 @@ elif echo "$AUDITORIA" | grep -q "RESSALVAS"; then
 fi
 
 PECA_FINAL="$PECA_BRUTA"
-if echo "$AUDITORIA" | grep -q "EXCELENTISSIMO\|EXCELENTÍSSIMO"; then
-  PECA_FINAL=$(echo "$AUDITORIA" | awk '/EXCELENTISSIMO|EXCELENTÍSSIMO/{found=1} found{print}')
+if echo "$AUDITORIA" | grep -qiE "EXCELENTISSIMO|EXCELENTÍSSIMO|EGRÉGIO|COLENDO|MERITÍSSIMO|VARA CÍVEL|VARA CRIMINAL|VARA DO TRABALHO|JUIZADO ESPECIAL"; then
+  PECA_FINAL=$(echo "$AUDITORIA" | awk '/EXCELENTISSIMO|EXCELENTÍSSIMO|EGRÉGIO|COLENDO|MERITÍSSIMO|VARA CÍVEL|VARA CRIMINAL|VARA DO TRABALHO|JUIZADO ESPECIAL/{found=1} found{print}')
+elif echo "$AUDITORIA" | grep -q "^\*\*"; then
+  PECA_FINAL=$(echo "$AUDITORIA" | awk '/^\*\*[A-Z]/{found=1} found{print}')
 fi
 
 echo "$PECA_FINAL" > "$TMP_DIR/peca_final.txt"
