@@ -607,11 +607,11 @@
       <div class="fg full" id="upload-container">
         <label id="upload-label">Anexar documento (opcional)</label>
         <div class="upload-area" id="upload-area">
-          <input type="file" accept=".pdf,.doc,.docx" id="file-input" onchange="mostrarArquivo(this)">
+          <input type="file" accept=".pdf,.docx" id="file-input" multiple onchange="mostrarArquivo(this)">
           <div class="upload-icon">📎</div>
           <div class="upload-title" id="upload-title">Clique para anexar ou arraste o arquivo</div>
           <div class="upload-sub" id="upload-sub">Petição inicial, contrato, decisão judicial</div>
-          <div class="upload-types">PDF, DOC ou DOCX — até 10 MB</div>
+          <div class="upload-types">PDF ou DOCX — até 10 MB cada, máximo 3 arquivos</div>
         </div>
         <div class="upload-preview" id="upload-preview">
           <span>📄 </span><span id="file-name">arquivo.pdf</span>
@@ -875,7 +875,7 @@
       juntada: {
         label: 'Anexar documento a ser juntado (obrigatório)',
         title: 'Anexar o documento para juntada aos autos',
-        sub: 'PDF, DOC ou DOCX — até 10 MB',
+        sub: 'PDF ou DOCX — até 10 MB',
         hint: 'Dica: Anexe o documento. A Themis JUR redige o requerimento de juntada com a qualificação correta.',
         fatos: 'Descreva brevemente o documento e o motivo da juntada...',
         p1: 'Requerente', p2: 'Requerido',
@@ -946,17 +946,54 @@
     campoProcesso.style.display = temProcesso.includes(tipo) ? 'flex' : 'none';
   }
 
+  // ===== Anexos (Parte 24 - P1) =====
+  const TIPOS_ANEXO_PERMITIDOS = [
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  ];
+  const MAX_ANEXOS = 3;
+  const MAX_TAMANHO_ANEXO = 10 * 1024 * 1024;
+
   function mostrarArquivo(input) {
-    if (input.files && input.files[0]) {
-      const nome = input.files[0].name;
-      document.getElementById('file-name').textContent = nome;
-      document.getElementById('upload-preview').classList.add('show');
-      document.getElementById('upload-area').style.display = 'none';
+    const arquivos = Array.from(input.files || []);
+    if (!arquivos.length) return;
+
+    if (arquivos.length > MAX_ANEXOS) {
+      alert('Máximo de ' + MAX_ANEXOS + ' arquivos. Selecione novamente.');
+      removerArquivo();
+      return;
     }
+    for (const arq of arquivos) {
+      if (!TIPOS_ANEXO_PERMITIDOS.includes(arq.type)) {
+        alert('Arquivo "' + arq.name + '" não é PDF ou DOCX.');
+        removerArquivo();
+        return;
+      }
+      if (arq.size > MAX_TAMANHO_ANEXO) {
+        alert('Arquivo "' + arq.name + '" excede 10MB.');
+        removerArquivo();
+        return;
+      }
+    }
+
+    document.getElementById('file-name').textContent = arquivos.map(a => a.name).join(', ');
+    document.getElementById('upload-preview').classList.add('show');
+    document.getElementById('upload-area').style.display = 'none';
   }
+
+  function arquivoParaBase64(arquivo) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(arquivo);
+    });
+  }
+  // ===== fim Anexos =====
 
   function removerArquivo() {
     document.getElementById('file-input').value = '';
+    document.getElementById('file-name').textContent = '';
     document.getElementById('upload-preview').classList.remove('show');
     document.getElementById('upload-area').style.display = 'block';
   }
@@ -1015,6 +1052,34 @@
     btn.textContent = 'Enviando para a Themis JUR…';
     btn.style.opacity = '0.8';
 
+    // ===== Acompanhamento de fases (Parte 24) =====
+    // Gera o leadId no frontend para podermos consultar /status enquanto aguardamos /gerar
+    const leadId = 'LEXPET-' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '-' + Math.floor(Math.random()*9000+1000);
+    dados.leadId = leadId;
+
+    let statusInterval = setInterval(async () => {
+      try {
+        const r = await fetch('https://tree-jogger-component.ngrok-free.dev/status/' + leadId, {
+          headers: { 'ngrok-skip-browser-warning': 'true' }
+        });
+        const s = await r.json();
+        if (s.fase) btn.textContent = '⏳ ' + s.fase;
+      } catch (e) { /* ignora falhas de polling */ }
+    }, 3000);
+    // ===== fim Acompanhamento de fases =====
+
+    // ===== Anexos (Parte 24 - P1): converte arquivos selecionados em base64 =====
+    const arquivosSelecionados = Array.from(document.getElementById('file-input')?.files || []);
+    const anexos = [];
+    for (const arq of arquivosSelecionados) {
+      anexos.push({
+        nome: arq.name,
+        tipo: arq.type,
+        base64: await arquivoParaBase64(arq)
+      });
+    }
+    // ===== fim Anexos =====
+
     try {
       const resp = await fetch('https://tree-jogger-component.ngrok-free.dev/gerar', {
         method:  'POST',
@@ -1022,7 +1087,7 @@
           'Content-Type': 'application/json',
           'x-lexpet-key': 'lexpet-cassiano-2026'
         },
-        body:    JSON.stringify(dados),
+        body:    JSON.stringify({ ...dados, anexos }),
       });
 
       const resultado = await resp.json();
@@ -1047,6 +1112,7 @@
         'style="color:var(--verde);font-weight:500">Clique aqui para enviar pelo WhatsApp</a>.'
       );
     } finally {
+      clearInterval(statusInterval);
       btn.disabled = false;
       btn.textContent = 'Gerar e visualizar petição gratuitamente';
       btn.style.opacity = '1';
